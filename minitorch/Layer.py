@@ -45,6 +45,9 @@ class MLP:
     def parameters(self):
         return [p for layer in self.layers for p in layer.parameters()]
 
+
+
+
 x = [2.0, 3.0,-1]
 n = MLP(3,[4,4,1])
 print(n(x))
