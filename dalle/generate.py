@@ -50,7 +50,7 @@ dalle_model = dalle_model.to(device)
 # for key in dalle_model.keys():
 #     print(key)
 # Test the model with a text input
-input_text = "A red apple on a table."
+input_text = "A man taking a drink from a water fountain."
 result_image = generate_image_from_text(dalle_model, tokenizer, input_text, device)
 result_image.save("output_image.png")
 result_image.show()
