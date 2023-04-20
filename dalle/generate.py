@@ -3,7 +3,7 @@ from PIL import Image
 import torch
 from torchvision.transforms.functional import to_pil_image
 from  model import *
-
+import io
 def generate_image_from_text(dalle, tokenizer, text, device):
     dalle.eval()  # Set the model to evaluation mode
     random_image = torch.randn(1, 3, 128, 128).to(device)  # Create a random image as a starting point
@@ -33,8 +33,22 @@ tokenizer.pad_token = tokenizer.eos_token
 vocab_size = len(tokenizer)
 
 dalle_weights_path = "dalle.pth"
-dalle_model.load_state_dict(torch.load(dalle_weights_path, map_location=device))
 
+# Load the state_dict from the file
+saved_state_dict = torch.load(dalle_weights_path, map_location=device)
+
+# Remove the last two keys (if necessary)
+keys_to_remove = list(saved_state_dict.keys())[-2:]
+for key in keys_to_remove:
+    saved_state_dict.pop(key)
+
+# Load the modified state_dict into the model
+dalle_model.load_state_dict(saved_state_dict)
+dalle_model = dalle_model.to(device)
+
+# print("Keys in the saved model state_dict:")
+# for key in dalle_model.keys():
+#     print(key)
 # Test the model with a text input
 input_text = "A red apple on a table."
 result_image = generate_image_from_text(dalle_model, tokenizer, input_text, device)
