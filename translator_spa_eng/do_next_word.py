@@ -3,7 +3,9 @@ import torch
 import time
 import numpy as np
 import string
-from next_work import *
+# from next_work import *
+from next_word_decoder import *
+
 import torch.nn.functional as F
 import matplotlib
 matplotlib.use('Agg')
@@ -27,19 +29,6 @@ def plot_attention_heatmap(scores, src_words, trg_words, layer_idx, head_idx, fi
     plt.savefig(file_name)
     plt.close(fig)
 
-def greedy_decode(model, src, src_mask, max_len=BLOCK_SIZE):
-    memory = model.encoder(src, src_mask)
-    ys = torch.ones(1, 1).fill_(text_encoder_decoder.encode('<sos>')[0]).type_as(src.data)
-    for _ in range(max_len-1):
-        trg_mask = (ys != 0).unsqueeze(-2)
-        out = model.decoder(ys, memory, src_mask, trg_mask)
-        prob = F.softmax(out[:, -1], dim=-1)
-        _, next_word = torch.max(prob, dim=1)
-        next_word = next_word.data[0]
-        ys = torch.cat([ys, next_word.unsqueeze(0).unsqueeze(0)], dim=1)
-        if next_word.item() == text_encoder_decoder.encode('<eos>')[0]:
-            break
-    return ys
 
 def get_attention_scores(model, e_outputs, trg_input):
     trg_mask = (trg_input != 0).unsqueeze(-2)
@@ -67,19 +56,8 @@ if __name__ == "__main__":
     model.load_state_dict(torch.load('tut6-model.pt'))
 
     # Test the translate function
-    test_sentence = "Allah is the best"
-    input = text_encoder_decoder.encode(test_sentence)
-    input = torch.tensor(input, dtype=torch.long).unsqueeze(0).cuda()
-    src_mask, trg_mask = create_mask(input, input)
-    output = greedy_decode(model, input, src_mask)
+    encoded_phrase = torch.tensor(encode("Allah is"), dtype=torch.long, device=device).unsqueeze(0)
+    print(decode(model.generate(encoded_phrase, max_new_tokens=80)[0].tolist()))
 
-    next_pred = model(input, input, src_mask, trg_mask)
-
-    print(f"Original: {test_sentence}")
-    # Get token IDs and convert to list of integers
-    output = output.squeeze(0).cpu().numpy().tolist()
-    translated_sentence = text_encoder_decoder.decode(output[1:])
-
-    print(f"Translated: {translated_sentence}")
 
     #lets convert next_pred to numpy array
