@@ -1,15 +1,19 @@
 import torch
 import torch.nn as nn
+import re
 import torch.nn.functional as F
+import copy
 import spacy
 import numpy as np
+import string
 import random
 import math
 import time
-import nltk
-from finalGPT.utils import CfgNode as CN
+# import nltk
+from utils import CfgNode as CN
 
-nltk.download('punkt')
+# nltk.download('punkt')
+from nltk.tokenize import word_tokenize
 
 # SEED = 1234
 # BATCH_SIZE = 256
@@ -24,8 +28,86 @@ nltk.download('punkt')
 # num_workers = 8
 # num_batches_per_epoch_train = 1000  # or any other value you want to set
 # num_batches_per_epoch_valid = 200  # or any other value you want to set for validation
-#
 
+# random.seed(SEED)
+# np.random.seed(SEED)
+# torch.manual_seed(SEED)
+# torch.cuda.manual_seed(SEED)
+torch.backends.cudnn.deterministic = True
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+# text_file = "coran2.txt"
+#
+# def dataLoader():
+#     with open(text_file, 'r', encoding='utf-8') as f:
+#         text = f.read()
+#     return text
+#
+# nlp_en = spacy.load('en_core_web_sm')
+#
+# nltk.download('punkt')
+# from nltk.tokenize import word_tokenize
+#
+#
+# with open('coran2.txt', 'r', encoding='utf-8') as f:
+#     text = f.read()
+#
+#
+# def build_vocab(text):
+#     tokens = word_tokenize(text)
+#     vocab = sorted(set(tokens))
+#     token_to_id = {token: i for i, token in enumerate(vocab)}
+#     id_to_token = {i: token for i, token in enumerate(vocab)}
+#     return vocab, token_to_id, id_to_token
+#
+#
+# vocab, token_to_id, id_to_token = build_vocab(text)
+# vocab_size = len(vocab)
+# print(f"Vocab Size: {vocab_size}")
+#
+# def encode(text):
+#     tokens = word_tokenize(text)
+#     token_ids = [token_to_id[token] for token in tokens]
+#     return token_ids
+#
+# def decode(token_ids):
+#     tokens = [id_to_token[token_id] for token_id in token_ids]
+#     decoded_text = ' '.join(tokens)
+#     return decoded_text
+#
+#
+# # Train and test splits
+# data = torch.tensor(encode(text), dtype=torch.long)
+# n = int(0.9*len(data)) # first 90% will be train, rest val
+# train_data = data[:n]
+# val_data = data[n:]
+#
+# # data loading
+# def get_batch(split):
+#     # generate a small batch of data of inputs x and targets y
+#     data = train_data if split == 'train' else val_data
+#     ix = torch.randint(len(data) - BLOCK_SIZE, (BATCH_SIZE,))
+#     x = torch.stack([data[i:i+BLOCK_SIZE] for i in ix])
+#     y = torch.stack([data[i+1:i+BLOCK_SIZE+1] for i in ix])
+#     x, y = x.to(device), y.to(device)
+#     return x, y
+#
+#
+#
+#
+#
+# def train_iterator(num_batches_per_epoch):
+#     for _ in range(num_batches_per_epoch):
+#         yield get_batch("train")
+#
+# def valid_iterator(num_batches_per_epoch):
+#     for _ in range(num_batches_per_epoch):
+#         yield get_batch("valid")
+#
+#
+#
+#
+#
 
 
 
@@ -33,35 +115,41 @@ nltk.download('punkt')
 class MultiHeadAttention(nn.Module):
     def __init__(self, config):
         super().__init__()
-        assert config.n_embd % config.heads == 0, "Embedding dimension must be divisible by number of heads"
+        assert config.n_embd % config.n_head == 0, "Embedding dimension must be divisible by number of heads"
         self.c_attn = nn.Linear(config.n_embd , config.n_embd * 3)
         self.c_proj = nn.Linear(config.n_embd , config.n_embd)
 
-        self.attn_dropout = nn.Dropout(config.dropout)
-        self.resif_dropout = nn.Dropout(config.dropout)
+        self.attn_dropout = nn.Dropout(config.attn_pdrop)
+        self.resid_dropout = nn.Dropout(config.resid_pdrop)
 
-        self.register_buffer("bias",torch.tril(torch.ones(config.BLOCK_SIZE,config.BLOCK_SIZE)).view(1,1,config.BLOCK_SIZE,config.BLOCK_SIZE))
-        self.n_heads = config.heads
+        self.register_buffer("bias", torch.tril(torch.ones(config.block_size, config.block_size))
+                                     .view(1, 1, config.block_size, config.block_size))
+        self.n_head = config.n_head
         self.n_embd = config.n_embd
 
 
     def forward(self, x):
 
 
-        B,T,C = x.shape # Batsize, Sequence Length, embedding dimension (n_embd)
-        k,q,v = self.c_attn(x).split(C,dim=2) # split the embedding dimension into 3 k.shape = (Batsize, Sequence Length, n_embd)
-        # realizamos operaciones para obtener las dimensiones adecuadas
-        k = k.view(B,T,self.n_heads, C//self.n_heads)
-        q = q.view(B,T,self.n_heads, C//self.n_heads)
-        v = v.view(B,T,self.n_heads, C//self.n_heads)
+        B, T, C = x.size() # batch size, sequence length, embedding dimensionality (n_embd)
 
-        # calculamos la atención
-        scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(k.size(-1))
+        # calculate query, key, values for all heads in batch and move head forward to be the batch dim
+        q, k ,v  = self.c_attn(x).split(self.n_embd, dim=2)
+        k = k.view(B, T, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
+        q = q.view(B, T, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
+        v = v.view(B, T, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
 
+        # causal self-attention; Self-attend: (B, nh, T, hs) x (B, nh, hs, T) -> (B, nh, T, T)
+        att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
+        att = att.masked_fill(self.bias[:,:,:T,:T] == 0, float('-inf'))
+        att = F.softmax(att, dim=-1)
+        att = self.attn_dropout(att)
+        y = att @ v # (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
+        y = y.transpose(1, 2).contiguous().view(B, T, C) # re-assemble all head outputs side by side
 
-        y = scores
-
-        return  y
+        # output projection
+        y = self.resid_dropout(self.c_proj(y))
+        return y
 
 
 
@@ -70,18 +158,16 @@ class Decoder(nn.Module):
     def __init__(self,config):
         super().__init__()
         self.ln_1 = nn.LayerNorm(config.n_embd)
-        self.attn = MultiHeadAttention(config.heads, config.n_embd)
+        self.attn = MultiHeadAttention(config)
         self.ln_2 = nn.LayerNorm(config.n_embd)
-        self.mlp = nn.ModuleDict(
-            dict(
-                c_fc = nn.Linear(config.n_embd,config.n_embd*4),
-                c_proj = nn.Linear(config.n_embd*4,config.n_embd),
-                act = nn.GELU(),
-                dropout = nn.Dropout(config.mlp_dropout)
+        self.mlp = nn.ModuleDict(dict(
+            c_fc=nn.Linear(config.n_embd, 4 * config.n_embd),
+            c_proj=nn.Linear(4 * config.n_embd, config.n_embd),
+            act=nn.GELU(),
+            dropout=nn.Dropout(config.resid_pdrop),
         ))
         m = self.mlp
-        self.mlpf = lambda x: m.dropout(m.c_proj(m.act(m.c_fc(x))))
-
+        self.mlpf = lambda x: m.dropout(m.c_proj(m.act(m.c_fc(x))))  # MLP forward
 
     def forward(self, x):
         x = x + self.attn(self.ln_1(x))
@@ -142,7 +228,7 @@ class GPT(nn.Module):
             wte = nn.Embedding(config.vocab_size, config.n_embd),
             wpe = nn.Embedding(config.block_size, config.n_embd),
             drop = nn.Dropout(config.embd_pdrop),
-            h = nn.ModuleList([MultiHeadAttention(config) for _ in range(config.n_layer)]),
+            h = nn.ModuleList([Decoder(config) for _ in range(config.n_layer)]),
             ln_f = nn.LayerNorm(config.n_embd),
         ))
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
@@ -258,8 +344,7 @@ class GPT(nn.Module):
         device  = idx.device
         b, t = idx.size()
         assert t <= self.block_size, "Cannot forward, model block size is exhausted."
-        pos = torch.arange(t, dtype=torch.long, device=device).unsend(0)
-
+        pos = torch.arange(0, t, dtype=torch.long, device=device).unsqueeze(0)  # shape (1, t)
 
         token_emb = self.transformer.wte(idx)
         pos_emb = self.transformer.wpe(pos)
