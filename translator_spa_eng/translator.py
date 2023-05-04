@@ -1,11 +1,12 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
+
 import torch.optim as optim
 import re
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 import dill as pickle
-import torch.nn.functional as F
 import copy
 import spacy
 import numpy as np

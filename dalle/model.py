@@ -272,7 +272,7 @@ def train_dalle(dalle, dataloader, device, epochs):
 
     print("Finished training")
 def load_data():
-    data_path = "coco_data"
+    data_path = "../objectdetection/coco_data"
     img_folder = "train2017"
     anno_json = "annotations/captions_train2017.json"
 

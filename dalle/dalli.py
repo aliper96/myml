@@ -18,7 +18,7 @@ from config import n_embd, n_head, n_layer, lr,latent_vector_size
 #now we will create a VQVAE model with the transformer architecture
 
 def load_data():
-    data_path = "coco_data"
+    data_path = "../objectdetection/coco_data"
     img_folder = "train2017"
     anno_json = "annotations/captions_train2017.json"
 
